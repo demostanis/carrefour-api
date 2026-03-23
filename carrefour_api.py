@@ -117,16 +117,22 @@ class CarrefourAPI:
         self, basket_service_id, ean, quantity, sub_basket_type="express_delivery"
     ):
         """Updates item quantity in cart. 'counter' is the total target quantity."""
-        payload = {
-            "trackingRequest": {"pageType": "search", "pageId": "search"},
-            "items": [
+        return self.update_cart_batch(
+            [
                 {
                     "basketServiceId": basket_service_id,
                     "counter": quantity,
                     "ean": ean,
                     "subBasketType": sub_basket_type,
                 }
-            ],
+            ]
+        )
+
+    def update_cart_batch(self, items):
+        """Updates multiple items in cart at once."""
+        payload = {
+            "trackingRequest": {"pageType": "search", "pageId": "search"},
+            "items": items,
         }
         response = self.session.patch(self.CART_URL, json=payload)
         response.raise_for_status()

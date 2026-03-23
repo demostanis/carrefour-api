@@ -34,6 +34,35 @@ def search():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/batch_search", methods=["POST"])
+def batch_search():
+    """Batch search for multiple queries. Body should be a list of strings."""
+    queries = request.json
+    if not isinstance(queries, list):
+        return jsonify({"error": "Request body must be a list of strings"}), 400
+
+    all_results = {}
+    for q in queries:
+        try:
+            results = api.search(q)
+            products = api.extract_all_products(results)
+            formatted = []
+            for p in products:
+                product_id = f"{p['ean']},{p['basketServiceId']}"
+                formatted.append(
+                    {
+                        "id": product_id,
+                        "name": p["title"],
+                        "price": p.get("price"),
+                    }
+                )
+            all_results[q] = formatted
+        except Exception as e:
+            all_results[q] = {"error": str(e)}
+
+    return jsonify(all_results)
+
+
 @app.route("/add", methods=["POST"])
 def add_to_cart():
     data = request.json
@@ -71,6 +100,74 @@ def add_to_cart():
         return jsonify(
             {
                 "message": f"Successfully updated quantity for {ean} to {target_qty}",
+                "cart_total": updated_cart.get("totalAmount"),
+            }
+        )
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/batch", methods=["POST"])
+def batch_update():
+    """Batch update quantities. Body should be a list of {id, quantity}."""
+    data = request.json
+    if not isinstance(data, list):
+        return jsonify({"error": "Request body must be a list"}), 400
+
+    try:
+        cart = api.get_cart()
+        current_quantities = {}
+        for category in cart.get("items", []):
+            for product_item in category.get("products", []):
+                p_attrs = product_item.get("product", {}).get("attributes", {})
+                e = p_attrs.get("ean")
+                if e:
+                    current_quantities[e] = product_item.get("counter", 0)
+
+        # Aggregate quantities to handle multiple entries for the same product in the batch
+        aggregated_updates = {}
+        for item in data:
+            product_id = item.get("id")
+            quantity = item.get("quantity", 1)
+
+            if not product_id:
+                continue
+
+            parts = product_id.split(",")
+            if len(parts) != 2:
+                continue
+
+            ean, basket_id = parts
+            if ean not in aggregated_updates:
+                aggregated_updates[ean] = {
+                    "basketServiceId": basket_id,
+                    "quantity": quantity,
+                }
+            else:
+                aggregated_updates[ean]["quantity"] += quantity
+
+        items_to_update = []
+        for ean, update_info in aggregated_updates.items():
+            current_qty = current_quantities.get(ean, 0)
+            target_qty = current_qty + update_info["quantity"]
+
+            items_to_update.append(
+                {
+                    "basketServiceId": update_info["basketServiceId"],
+                    "counter": target_qty,
+                    "ean": ean,
+                    "subBasketType": "express_delivery",
+                }
+            )
+
+        if not items_to_update:
+            return jsonify({"error": "No valid items found in batch request"}), 400
+
+        updated_cart = api.update_cart_batch(items_to_update)
+
+        return jsonify(
+            {
+                "message": f"Successfully updated {len(items_to_update)} items",
                 "cart_total": updated_cart.get("totalAmount"),
             }
         )
