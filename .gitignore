@@ -2,3 +2,4 @@ carrefour_session.json
 pkg
 src
 *.tar.zst
+__pycache__

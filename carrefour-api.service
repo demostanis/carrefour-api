@@ -8,6 +8,7 @@ DynamicUser=yes
 StateDirectory=carrefour-api
 WorkingDirectory=/usr/share/carrefour-api
 Environment=PYTHONUNBUFFERED=1
+Environment=CARREFOUR_COOKIE_FILE=/var/lib/carrefour-api/carrefour_session.json
 ExecStart=/usr/bin/python /usr/share/carrefour-api/server.py
 Restart=always
 RestartSec=5

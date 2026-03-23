@@ -1,6 +1,15 @@
 from flask import Flask, request, jsonify
 from carrefour_api import CarrefourAPI
 import json
+import logging
+import traceback
+
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logger = logging.getLogger("CarrefourServer")
 
 app = Flask(__name__)
 api = CarrefourAPI()
@@ -31,19 +40,30 @@ def search():
 
         return jsonify(response_data)
     except Exception as e:
+        logger.error(f"Error in search: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/batch_search", methods=["POST"])
 def batch_search():
-    """Batch search for multiple queries. Body should be a JSON string in 'data' field."""
+    """Batch search for multiple queries. Body should be a JSON string or list in 'data' field."""
     payload = request.json
+    logger.debug(f"Received batch search request: {payload}")
     if not payload or "data" not in payload:
         return jsonify({"error": "Missing 'data' field in request body"}), 400
 
     try:
-        queries = json.loads(payload["data"].removeprefix("json"))
-    except json.JSONDecodeError:
+        raw_data = payload["data"]
+        if isinstance(raw_data, str):
+            queries = json.loads(raw_data.removeprefix("json"))
+        elif isinstance(raw_data, list):
+            queries = raw_data
+        else:
+            return jsonify(
+                {"error": "'data' field must be a JSON-encoded string or a list"}
+            ), 400
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error in batch_search: {e}")
         return jsonify({"error": "'data' field must be a JSON-encoded string"}), 400
 
     if not isinstance(queries, list):
@@ -66,6 +86,7 @@ def batch_search():
                 )
             all_results[q] = formatted
         except Exception as e:
+            logger.error(f"Error in batch_search for query {q}: {e}")
             all_results[q] = {"error": str(e)}
 
     return jsonify(all_results)
@@ -87,15 +108,20 @@ def add_to_cart():
             return jsonify({"error": "Invalid ID format. Use '<ean>,<basket_id>'"}), 400
 
         ean, basket_id = parts
-        sub_basket = "express_delivery"  # Always hardcoded per user req
+        sub_basket = (
+            "marketplace" if basket_id.startswith("MKP_") else "express_delivery"
+        )
 
         cart = api.get_cart()
         current_qty = 0
 
         # Traverse categories to find existing quantity
-        for category in cart.get("items", []):
-            for product_item in category.get("products", []):
-                p_attrs = product_item.get("product", {}).get("attributes", {})
+        for category in cart.get("items", []) or []:
+            for product_item in category.get("products", []) or []:
+                p_obj = product_item.get("product")
+                if not p_obj:
+                    continue
+                p_attrs = p_obj.get("attributes", {})
                 if p_attrs.get("ean") == ean:
                     current_qty = product_item.get("counter", 0)
                     break
@@ -112,19 +138,30 @@ def add_to_cart():
             }
         )
     except Exception as e:
+        logger.error(f"Error in add_to_cart: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 
 @app.route("/batch", methods=["POST"])
 def batch_update():
-    """Batch update quantities. Body should be a JSON string in 'data' field."""
+    """Batch update quantities. Body should be a JSON string or list in 'data' field."""
     payload = request.json
+    logger.debug(f"Received batch update request: {payload}")
     if not payload or "data" not in payload:
         return jsonify({"error": "Missing 'data' field in request body"}), 400
 
     try:
-        data = json.loads(payload["data"].removeprefix("json"))
-    except json.JSONDecodeError:
+        raw_data = payload["data"]
+        if isinstance(raw_data, str):
+            data = json.loads(raw_data.removeprefix("json"))
+        elif isinstance(raw_data, list):
+            data = raw_data
+        else:
+            return jsonify(
+                {"error": "'data' field must be a JSON-encoded string or a list"}
+            ), 400
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error in batch_update: {e}")
         return jsonify({"error": "'data' field must be a JSON-encoded string"}), 400
 
     if not isinstance(data, list):
@@ -133,9 +170,12 @@ def batch_update():
     try:
         cart = api.get_cart()
         current_quantities = {}
-        for category in cart.get("items", []):
-            for product_item in category.get("products", []):
-                p_attrs = product_item.get("product", {}).get("attributes", {})
+        for category in cart.get("items", []) or []:
+            for product_item in category.get("products", []) or []:
+                p_obj = product_item.get("product")
+                if not p_obj:
+                    continue
+                p_attrs = p_obj.get("attributes", {})
                 e = p_attrs.get("ean")
                 if e:
                     current_quantities[e] = product_item.get("counter", 0)
@@ -167,12 +207,17 @@ def batch_update():
             current_qty = current_quantities.get(ean, 0)
             target_qty = current_qty + update_info["quantity"]
 
+            b_id = update_info["basketServiceId"]
+            sub_basket = (
+                "marketplace" if b_id.startswith("MKP_") else "express_delivery"
+            )
+
             items_to_update.append(
                 {
-                    "basketServiceId": update_info["basketServiceId"],
+                    "basketServiceId": b_id,
                     "counter": target_qty,
                     "ean": ean,
-                    "subBasketType": "express_delivery",
+                    "subBasketType": sub_basket,
                 }
             )
 
@@ -188,6 +233,7 @@ def batch_update():
             }
         )
     except Exception as e:
+        logger.error(f"Error in batch_update: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 
@@ -196,21 +242,25 @@ def get_cart():
     try:
         cart = api.get_cart()
         items = []
-        for category in cart.get("items", []):
-            for product_item in category.get("products", []):
+        for category in cart.get("items", []) or []:
+            for product_item in category.get("products", []) or []:
                 qty = product_item.get("counter")
-                p_obj = product_item.get("product", {})
+                p_obj = product_item.get("product")
+                if not p_obj:
+                    continue
                 p_attrs = p_obj.get("attributes", {})
 
                 ean = p_attrs.get("ean")
                 title = p_attrs.get("title")
                 basket_id = p_attrs.get("offerServiceId")
                 offers = p_attrs.get("offers", {})
-                ean_offers = offers.get(ean, {})
+                ean_offers = offers.get(ean, {}) if ean else {}
                 specific_offer = ean_offers.get(basket_id, {}) if basket_id else {}
-                price = (
-                    specific_offer.get("attributes", {}).get("price", {}).get("price")
+                offer_attrs = (
+                    specific_offer.get("attributes", {}) if specific_offer else {}
                 )
+                price_obj = offer_attrs.get("price", {}) if offer_attrs else {}
+                price = price_obj.get("price") if price_obj else None
 
                 items.append(
                     {
@@ -230,6 +280,7 @@ def get_cart():
             }
         )
     except Exception as e:
+        logger.error(f"Error in get_cart: {e}\n{traceback.format_exc()}")
         return jsonify({"error": str(e)}), 500
 
 
