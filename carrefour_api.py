@@ -30,10 +30,10 @@ class CarrefourAPI:
                 cookies = json.load(f)
                 self.session.cookies.update(cookies)
 
-    def save_session(self):
-        """Saves current session cookies to a local file."""
-        with open(self.COOKIE_FILE, "w") as f:
-            json.dump(self.session.cookies.get_dict(), f)
+    #def save_session(self):
+    #    """Saves current session cookies to a local file."""
+    #    with open(self.COOKIE_FILE, "w") as f:
+    #        json.dump(self.session.cookies.get_dict(), f)
 
     def _ensure_fresh_session(self):
         """
@@ -70,7 +70,7 @@ class CarrefourAPI:
 
             # These items already have the 'attributes' structure expected by extract_product_info
             # So we can just return them as a pseudo-placement
-            self.save_session()
+            #self.save_session()
             return [{"products": items}]
         except Exception as e:
             # Fallback to HTML scraping if JSON parse fails
@@ -102,14 +102,14 @@ class CarrefourAPI:
             for item in items:
                 products.append({"attributes": item})
 
-            self.save_session()
+            #self.save_session()
             return [{"products": products}]
 
     def get_cart(self):
         self.session.headers["Referer"] = "https://www.carrefour.fr/cart"
         response = self.session.get(self.CART_URL)
         response.raise_for_status()
-        self.save_session()
+        #self.save_session()
         data = response.json()
         return data.get("cart", {})
 
@@ -136,7 +136,7 @@ class CarrefourAPI:
         }
         response = self.session.patch(self.CART_URL, json=payload)
         response.raise_for_status()
-        self.save_session()
+        #self.save_session()
         data = response.json()
         return data.get("cart", {})
 
