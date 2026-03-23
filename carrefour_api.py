@@ -8,7 +8,7 @@ class CarrefourAPI:
     BASE_URL = "https://www.carrefour.fr/api"
     SEARCH_URL = f"{BASE_URL}/marketing/search_panel"
     CART_URL = f"{BASE_URL}/cart"
-    COOKIE_FILE = "carrefour_session.json"
+    COOKIE_FILE = os.getenv("CARREFOUR_COOKIE_FILE", "carrefour_session.json")
 
     def __init__(self):
         self.session = requests.Session()
