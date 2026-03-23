@@ -8,7 +8,7 @@ url="https://github.com/demostanis/carrefour-api"
 license=('MIT')
 depends=('python-flask' 'python-requests')
 source=('server.py' 'carrefour_api.py' 'carrefour_session.json' 'carrefour-api.service')
-sha256sums=('1aea61028050d2ac9efb3e775e3627296fe7343f30e2b5b7a487c8cce125c84a'
+sha256sums=('adc963eeeb5a4dd3b75fc2da7ebcdb92c35d8bea08258a11b5b27c3230fefad7'
             'f8b01d438de8a564d36ac47f2fa950250913f2efc2477eb13b2610b09bbfa37d'
             '8667b8ecb73882fdd9432f8bcd7e255257186f2ca0e84df96a563f0d1f88be2e'
             '782b2dc2c168d0a27b94f760f65b5782bc9d98a9385446d5229d77a34d10995c')

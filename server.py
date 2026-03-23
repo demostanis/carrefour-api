@@ -36,10 +36,18 @@ def search():
 
 @app.route("/batch_search", methods=["POST"])
 def batch_search():
-    """Batch search for multiple queries. Body should be a list of strings."""
-    queries = request.json
+    """Batch search for multiple queries. Body should be a JSON string in 'data' field."""
+    payload = request.json
+    if not payload or "data" not in payload:
+        return jsonify({"error": "Missing 'data' field in request body"}), 400
+
+    try:
+        queries = json.loads(payload["data"].removeprefix("json"))
+    except json.JSONDecodeError:
+        return jsonify({"error": "'data' field must be a JSON-encoded string"}), 400
+
     if not isinstance(queries, list):
-        return jsonify({"error": "Request body must be a list of strings"}), 400
+        return jsonify({"error": "Decoded 'data' must be a list of strings"}), 400
 
     all_results = {}
     for q in queries:
@@ -109,10 +117,18 @@ def add_to_cart():
 
 @app.route("/batch", methods=["POST"])
 def batch_update():
-    """Batch update quantities. Body should be a list of {id, quantity}."""
-    data = request.json
+    """Batch update quantities. Body should be a JSON string in 'data' field."""
+    payload = request.json
+    if not payload or "data" not in payload:
+        return jsonify({"error": "Missing 'data' field in request body"}), 400
+
+    try:
+        data = json.loads(payload["data"].removeprefix("json"))
+    except json.JSONDecodeError:
+        return jsonify({"error": "'data' field must be a JSON-encoded string"}), 400
+
     if not isinstance(data, list):
-        return jsonify({"error": "Request body must be a list"}), 400
+        return jsonify({"error": "Decoded 'data' must be a list"}), 400
 
     try:
         cart = api.get_cart()
