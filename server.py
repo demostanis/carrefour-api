@@ -108,12 +108,10 @@ def add_to_cart():
             return jsonify({"error": "Invalid ID format. Use '<ean>,<basket_id>'"}), 400
 
         ean, basket_id = parts
-        sub_basket = (
-            "marketplace" if basket_id.startswith("MKP_") else "express_delivery"
-        )
-
         cart = api.get_cart()
         current_qty = 0
+        current_offer_service_id = None
+        found_in_cart = False
 
         # Traverse categories to find existing quantity
         for category in cart.get("items", []) or []:
@@ -124,9 +122,23 @@ def add_to_cart():
                 p_attrs = p_obj.get("attributes", {})
                 if p_attrs.get("ean") == ean:
                     current_qty = product_item.get("counter", 0)
+                    current_offer_service_id = (
+                        api.extract_offer_service_id_from_cart_item(product_item)
+                    )
+                    found_in_cart = True
                     break
-            if current_qty > 0:
+            if found_in_cart:
                 break
+
+        basket_id = current_offer_service_id or api.resolve_offer_service_id(
+            ean, basket_id
+        )
+        if not basket_id:
+            return jsonify(
+                {"error": f"Could not resolve basket service for EAN {ean}"}
+            ), 400
+
+        sub_basket = api.derive_sub_basket_type(basket_id)
 
         target_qty = current_qty + quantity
         updated_cart = api.update_cart(basket_id, ean, target_qty, sub_basket)
@@ -170,6 +182,7 @@ def batch_update():
     try:
         cart = api.get_cart()
         current_quantities = {}
+        current_offer_service_ids = {}
         for category in cart.get("items", []) or []:
             for product_item in category.get("products", []) or []:
                 p_obj = product_item.get("product")
@@ -179,6 +192,9 @@ def batch_update():
                 e = p_attrs.get("ean")
                 if e:
                     current_quantities[e] = product_item.get("counter", 0)
+                    current_offer_service_ids[e] = (
+                        api.extract_offer_service_id_from_cart_item(product_item)
+                    )
 
         # Aggregate quantities to handle multiple entries for the same product in the batch
         aggregated_updates = {}
@@ -202,17 +218,22 @@ def batch_update():
             else:
                 aggregated_updates[ean]["quantity"] += quantity
 
-        items_to_update = []
+        items_to_update_by_service = {}
+        skipped_items = []
         for ean, update_info in aggregated_updates.items():
             current_qty = current_quantities.get(ean, 0)
             target_qty = current_qty + update_info["quantity"]
 
-            b_id = update_info["basketServiceId"]
-            sub_basket = (
-                "marketplace" if b_id.startswith("MKP_") else "express_delivery"
+            b_id = current_offer_service_ids.get(ean) or api.resolve_offer_service_id(
+                ean, update_info["basketServiceId"]
             )
+            if not b_id:
+                skipped_items.append(ean)
+                continue
 
-            items_to_update.append(
+            sub_basket = api.derive_sub_basket_type(b_id)
+
+            items_to_update_by_service.setdefault(b_id, []).append(
                 {
                     "basketServiceId": b_id,
                     "counter": target_qty,
@@ -221,15 +242,20 @@ def batch_update():
                 }
             )
 
-        if not items_to_update:
+        if not items_to_update_by_service:
             return jsonify({"error": "No valid items found in batch request"}), 400
 
-        updated_cart = api.update_cart_batch(items_to_update)
+        updated_cart = None
+        updated_count = 0
+        for service_items in items_to_update_by_service.values():
+            updated_count += len(service_items)
+            updated_cart = api.update_cart_batch(service_items)
 
         return jsonify(
             {
-                "message": f"Successfully updated {len(items_to_update)} items",
-                "cart_total": updated_cart.get("totalAmount"),
+                "message": f"Successfully updated {updated_count} items",
+                "cart_total": updated_cart.get("totalAmount") if updated_cart else None,
+                "skipped_items": skipped_items,
             }
         )
     except Exception as e:
@@ -245,6 +271,12 @@ def get_cart():
         for category in cart.get("items", []) or []:
             for product_item in category.get("products", []) or []:
                 qty = product_item.get("counter")
+                if not qty or qty <= 0:
+                    continue
+
+                if product_item.get("available") is False:
+                    continue
+
                 p_obj = product_item.get("product")
                 if not p_obj:
                     continue
@@ -259,6 +291,19 @@ def get_cart():
                 offer_attrs = (
                     specific_offer.get("attributes", {}) if specific_offer else {}
                 )
+                availability = (
+                    offer_attrs.get("availability", {}) if offer_attrs else {}
+                )
+
+                if availability.get("purchasable") is not True:
+                    continue
+
+                if (
+                    availability.get("stopped") is True
+                    or availability.get("suspended") is True
+                ):
+                    continue
+
                 price_obj = offer_attrs.get("price", {}) if offer_attrs else {}
                 price = price_obj.get("price") if price_obj else None
 

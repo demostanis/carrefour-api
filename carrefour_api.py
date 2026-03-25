@@ -199,6 +199,58 @@ class CarrefourAPI:
         logger.debug(f"Cart successfully updated. New total: {cart.get('totalAmount')}")
         return cart
 
+    def resolve_offer_service_id(self, ean, fallback_basket_service_id=None):
+        """Resolve the current offer service ID for an EAN, with fallback."""
+        try:
+            results = self.search(ean)
+            products = self.extract_all_products(results)
+        except Exception as e:
+            logger.debug(f"Failed to resolve offer service ID for {ean}: {e}")
+            return (
+                fallback_basket_service_id
+                if self.is_valid_offer_service_id(fallback_basket_service_id)
+                else None
+            )
+
+        for product in products:
+            if product.get("ean") != ean:
+                continue
+
+            resolved_id = product.get("basketServiceId")
+            if resolved_id and not resolved_id.startswith("MKP_"):
+                return resolved_id
+
+        if self.is_valid_offer_service_id(fallback_basket_service_id):
+            return fallback_basket_service_id
+
+        return None
+
+    @staticmethod
+    def is_valid_offer_service_id(basket_service_id):
+        if not basket_service_id or basket_service_id.startswith("MKP_"):
+            return False
+
+        parts = basket_service_id.split("-")
+        return len(parts) == 3 and len(parts[2]) >= 4
+
+    @staticmethod
+    def derive_sub_basket_type(basket_service_id):
+        return (
+            "marketplace"
+            if basket_service_id.startswith("MKP_")
+            else "express_delivery"
+        )
+
+    def extract_offer_service_id_from_cart_item(self, product_item):
+        product = product_item.get("product", {})
+        attrs = product.get("attributes", {})
+        offer_service_id = attrs.get("offerServiceId")
+
+        if self.is_valid_offer_service_id(offer_service_id):
+            return offer_service_id
+
+        return None
+
     def extract_all_products(self, search_results):
         extracted = []
         for placement in search_results:
@@ -213,14 +265,23 @@ class CarrefourAPI:
         attrs = product_node.get("attributes", {})
         # logger.debug(f"Extracting info from product node: {json.dumps(product_node)}")
         ean = attrs.get("ean")
-        basket_id = attrs.get("offerServiceId")
         offers = attrs.get("offers", {})
-        ean_offers = offers.get(ean, {})
+        ean_offers = offers.get(ean, {}) if ean else {}
+
+        basket_id = attrs.get("offerServiceId")
+        if basket_id and ean_offers and basket_id not in ean_offers:
+            basket_id = None
 
         if not basket_id and ean_offers:
-            basket_id = list(ean_offers.keys())[0]
+            for offer_id in ean_offers.keys():
+                if offer_id.startswith("MKP_"):
+                    continue
+                basket_id = offer_id
+                break
 
         specific_offer = ean_offers.get(basket_id, {}) if basket_id else {}
+        offer_attrs = specific_offer.get("attributes", {}) if specific_offer else {}
+        availability = offer_attrs.get("availability", {}) if offer_attrs else {}
 
         if not ean or not basket_id:
             return None
@@ -228,6 +289,12 @@ class CarrefourAPI:
         # Determine correct subBasketType
         if basket_id.startswith("MKP_"):
             return None  # Never return marketplace items
+
+        if availability.get("purchasable") is not True:
+            return None
+
+        if availability.get("stopped") is True or availability.get("suspended") is True:
+            return None
 
         sub_basket = "express_delivery"
 
