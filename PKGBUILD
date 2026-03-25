@@ -1,7 +1,7 @@
 # Maintainer: demostanis <demostanis@gmail.com>
 pkgname=carrefour-api
-pkgver=1.1.3
-pkgrel=2
+pkgver=1.1.4
+pkgrel=1
 pkgdesc="HTTP API for remote shopping on carrefour.fr"
 arch=('any')
 url="https://github.com/demostanis/carrefour-api"
@@ -11,7 +11,7 @@ source=('server.py' 'carrefour_api.py' 'carrefour_session.json' 'carrefour-api.s
 sha256sums=('dfd23c096f092e8c6f86c02ecf3170664447dd847b8504d5e6d85a082791237b'
             '440eac6f45b50451b4c02cb1db0e9e8ab2e2daf9ddadb900e688dc88f069c810'
             '8667b8ecb73882fdd9432f8bcd7e255257186f2ca0e84df96a563f0d1f88be2e'
-            '236268bb5c5071fd98c3684250d6f99e0a3f16de9d03b91743e84a6b5d62eb35')
+            '18003edda66b7a12534d4817592ec4c1724b04fab8b1ec97ae1c448f16ddb1a4')
 install=carrefour-api.install
 
 package() {
